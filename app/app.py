@@ -29,7 +29,7 @@ DEFAULT_API_KEY = os.getenv('OPENROUTER_API_KEY')
 
 # Rate limiting setup
 last_request_time = 0
-RATE_LIMIT_SECONDS = 5
+RATE_LIMIT_SECONDS = 1
 
 def rate_limit_if_default_key(f):
     @wraps(f)
