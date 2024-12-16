@@ -1,6 +1,0 @@
-httpx==0.28.1
-matplotlib==3.10.0
-numpy==2.2.0
-openai==1.57.4
-python-dotenv==1.0.1
-scikit-learn==1.6.0

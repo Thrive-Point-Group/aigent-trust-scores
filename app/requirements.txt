@@ -1,0 +1,5 @@
+flask
+openai
+numpy
+python-dotenv
+gunicorn
