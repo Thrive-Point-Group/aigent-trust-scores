@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import openai
 import numpy as np
 from typing import List, Dict
@@ -10,6 +11,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
+CORS(app, resources={
+    r"/calculate-trust": {
+        "origins": [
+            "https://higherrrrrrr.fun",
+            "http://localhost:3000",
+            "http://localhost:8080"
+        ],
+        "methods": ["POST"],
+        "allow_headers": ["Content-Type", "X-API-Key"]
+    }
+})
 
 # OpenRouter configuration
 openai.api_base = "https://openrouter.ai/api/v1"
