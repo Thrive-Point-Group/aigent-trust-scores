@@ -83,24 +83,37 @@ def calculate_perplexity(messages: List[Dict], output: str, api_key: str) -> flo
         if 'choices' not in response_json or not response_json['choices']:
             return float('inf')
             
-        # Get logprobs from the response
+        # Get logprobs and reconstruct full text
         prompt_logprobs = response_json['prompt'][0]['logprobs']
-        
-        # Find where the assistant's output starts in the token stream
         tokens = prompt_logprobs['tokens']
-        output_start = -1
-        for i, token in enumerate(tokens):
-            if token == output[:len(token)]:  # Found start of output
-                output_start = i
-                break
+        token_logprobs = prompt_logprobs['token_logprobs']
         
-        if output_start == -1:
+        # Reconstruct the full text and track token positions
+        full_text = ""
+        token_positions = []  # List of (start, end) positions for each token
+        
+        for token in tokens:
+            start = len(full_text)
+            full_text += token
+            end = len(full_text)
+            token_positions.append((start, end))
+        
+        # Find the output string position
+        output_pos = full_text.find(output)
+        if output_pos == -1:
             return float('inf')
-            
-        # Get only the logprobs for the output portion
-        output_logprobs = prompt_logprobs['token_logprobs'][output_start:]
         
-        # Filter out None values
+        # Find which tokens overlap with our output string
+        output_end = output_pos + len(output)
+        output_token_indices = []
+        
+        for i, (start, end) in enumerate(token_positions):
+            # Check if this token overlaps with our output string
+            if end > output_pos and start < output_end:
+                output_token_indices.append(i)
+        
+        # Get logprobs for those tokens
+        output_logprobs = [token_logprobs[i] for i in output_token_indices]
         valid_logprobs = [lp for lp in output_logprobs if lp is not None]
         
         if not valid_logprobs:
