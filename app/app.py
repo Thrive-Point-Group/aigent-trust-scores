@@ -79,12 +79,35 @@ def calculate_perplexity(messages: List[Dict], output: str, api_key: str) -> flo
         print(f"Error calculating perplexity: {e}")
         return float('inf')
 
-def calculate_trust_score(perplexity: float) -> float:
-    """Convert perplexity to a trust score between 0 and 1."""
+def calculate_trust_score(perplexity: float) -> dict:
+    """Convert perplexity to a trust score between 0 and 1 with classification."""
     # Lower perplexity means higher trust
     # Using a simple inverse exponential transformation
-    trust_score = np.exp(-perplexity / 100)  # Adjust the scaling factor as needed
-    return min(max(trust_score, 0), 1)  # Clamp between 0 and 1
+    numeric_score = np.exp(-perplexity / 100)  # Adjust the scaling factor as needed
+    score = min(max(numeric_score, 0), 1)  # Clamp between 0 and 1
+    
+    # Classify the trust level
+    if score >= 0.8:
+        classification = "HIGH"
+    elif score >= 0.5:
+        classification = "MEDIUM"
+    else:
+        classification = "LOW"
+    
+    return {
+        "score": score,
+        "classification": classification,
+        "description": get_trust_description(classification)
+    }
+
+def get_trust_description(classification: str) -> str:
+    """Get a human-readable description of the trust classification."""
+    descriptions = {
+        "HIGH": "The response appears highly reliable and consistent with expected AI behavior.",
+        "MEDIUM": "The response shows moderate reliability but may need verification.",
+        "LOW": "The response shows unusual patterns and should be treated with caution."
+    }
+    return descriptions.get(classification, "Unknown classification")
 
 @app.route('/calculate-trust', methods=['POST'])
 @rate_limit_if_default_key
@@ -104,10 +127,12 @@ def calculate_trust():
     
     # Calculate perplexity using the messages array and output
     perplexity = calculate_perplexity(messages, output, api_key)
-    trust_score = calculate_trust_score(perplexity)
+    trust_result = calculate_trust_score(perplexity)
     
     return jsonify({
-        'trust_score': trust_score,
+        'trust_score': trust_result["score"],
+        'trust_classification': trust_result["classification"],
+        'trust_description': trust_result["description"],
         'perplexity': perplexity,
         'using_default_key': api_key == DEFAULT_API_KEY
     })

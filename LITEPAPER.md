@@ -75,13 +75,38 @@ Key strengths:
 
 #### Conversion to Trust Score
 
-To make perplexity results interpretable, Plex converts perplexity values into a standardized **trust score**:
+To make perplexity results interpretable, Plex converts perplexity values into both a numeric trust score and a categorical classification:
 
 \[
-\text{Trust Score} = \exp\left(-\frac{\text{Perplexity}}{k}\right)
+\text{Numeric Score} = \exp\left(-\frac{\text{Perplexity}}{k}\right)
 \]
 
-Where \( k \) is a scaling factor that adjusts the sensitivity of the trust score. Lower perplexity values (indicating higher confidence) result in higher trust scores.
+Where \( k \) is a scaling factor that adjusts the sensitivity of the trust score. The numeric score is then mapped to categorical classifications:
+
+- **HIGH** (Score ≥ 0.8): Indicates highly reliable and consistent responses
+- **MEDIUM** (0.5 ≤ Score < 0.8): Suggests moderate reliability requiring verification
+- **LOW** (Score < 0.5): Signals unusual patterns warranting caution
+
+This dual approach provides both precise numerical measurements and easily interpretable classifications for quick decision-making.
+
+#### Trust Classifications
+
+Each classification level carries specific implications:
+
+1. **HIGH Trust**
+   - Perplexity patterns closely match expected AI behavior
+   - Response shows high coherence with conversation context
+   - Suitable for automated processing
+
+2. **MEDIUM Trust**
+   - Shows acceptable but not optimal perplexity patterns
+   - May require human verification for critical applications
+   - Suitable for supervised processing
+
+3. **LOW Trust**
+   - Exhibits unusual perplexity patterns
+   - May indicate manipulation or system issues
+   - Requires thorough review before use
 
 ---
 

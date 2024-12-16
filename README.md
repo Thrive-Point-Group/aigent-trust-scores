@@ -75,7 +75,9 @@ Plex evaluates AI-generated messages by:
 {
   "trust_score": 0.87,
   "perplexity": 15.32,
-  "using_default_key": false
+  "using_default_key": false,
+  "trust_classification": "HIGH",
+  "trust_description": "The response appears highly reliable and consistent with expected AI behavior."
 }
 ```
 
