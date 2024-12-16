@@ -4,6 +4,10 @@ Welcome to **Plex**, a lightweight and powerful tool for verifying the authentic
 
 ---
 
+[Building Trustworthy AI - Read on Mirror](https://mirror.xyz/0xBA525e4c0d544eFc01af4382CA5a589b7e0656Ce/ijSvx1DGWBRW-yiVEkhkoB3jnrc4KkGRmMtNUi2izdU)
+
+---
+
 ## Why Use Plex?
 
 1. **Build Trust:** Ensure AI-generated messages are authentic and reliable.
