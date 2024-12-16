@@ -7,8 +7,12 @@ import os
 import time
 from functools import wraps
 from dotenv import load_dotenv
+import requests
+import json
 
 load_dotenv()
+
+DEFAULT_API_KEY = os.getenv('TOGETHER_API_KEY')
 
 app = Flask(__name__)
 CORS(app, resources={
@@ -22,10 +26,6 @@ CORS(app, resources={
         "allow_headers": ["Content-Type", "X-API-Key"]
     }
 })
-
-# OpenRouter configuration
-openai.api_base = "https://openrouter.ai/api/v1"
-DEFAULT_API_KEY = os.getenv('OPENROUTER_API_KEY')
 
 # Rate limiting setup
 last_request_time = 0
@@ -59,36 +59,59 @@ def rate_limit_if_default_key(f):
 def calculate_perplexity(messages: List[Dict], output: str, api_key: str) -> float:
     """Calculate perplexity for a given set of messages and output using token probabilities."""
     try:
-        openai.api_key = api_key
-        client = openai.OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=api_key,
-        )
-
-        # Create full message array including the output
+        url = "https://api.together.xyz/v1/chat/completions"
+        headers = {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "authorization": f"Bearer {api_key}"
+        }
+        
         full_messages = messages + [{"role": "assistant", "content": output}]
         
-        response = client.chat.completions.create(
-            model="openai/gpt-4-turbo",
-            messages=full_messages,
-            temperature=0,
-            logprobs=True,
-            max_tokens=0
-        )
+        payload = {
+            "model": "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+            "messages": full_messages,
+            "temperature": 0,
+            "max_tokens": 0,
+            "logprobs": 1,
+            "echo": True
+        }
         
+        response = requests.post(url, json=payload, headers=headers)
+        response_json = response.json()
+        
+        if 'choices' not in response_json or not response_json['choices']:
+            return float('inf')
+            
         # Get logprobs from the response
-        token_logprobs = response.choices[0].logprobs.token_logprobs
-        # Remove None values that might appear at the start
-        token_logprobs = [lp for lp in token_logprobs if lp is not None]
+        prompt_logprobs = response_json['prompt'][0]['logprobs']
         
-        # Calculate perplexity
-        avg_log_prob = np.mean(token_logprobs)
+        # Find where the assistant's output starts in the token stream
+        tokens = prompt_logprobs['tokens']
+        output_start = -1
+        for i, token in enumerate(tokens):
+            if token == output[:len(token)]:  # Found start of output
+                output_start = i
+                break
+        
+        if output_start == -1:
+            return float('inf')
+            
+        # Get only the logprobs for the output portion
+        output_logprobs = prompt_logprobs['token_logprobs'][output_start:]
+        
+        # Filter out None values
+        valid_logprobs = [lp for lp in output_logprobs if lp is not None]
+        
+        if not valid_logprobs:
+            return float('inf')
+            
+        avg_log_prob = np.mean(valid_logprobs)
         perplexity = np.exp(-avg_log_prob)
         
         return perplexity
     
     except Exception as e:
-        print(f"Error calculating perplexity: {e}")
         return float('inf')
 
 def calculate_trust_score(perplexity: float) -> dict:
@@ -150,4 +173,4 @@ def calculate_trust():
     })
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080)
+    app.run(host='0.0.0.0', port=5000)
