@@ -17,13 +17,11 @@ DEFAULT_API_KEY = os.getenv('TOGETHER_API_KEY')
 app = Flask(__name__)
 CORS(app, resources={
     r"/calculate-trust": {
-        "origins": [
-            "https://higherrrrrrr.fun",
-            "http://localhost:3000",
-            "http://localhost:8080"
-        ],
-        "methods": ["POST"],
-        "allow_headers": ["Content-Type", "X-API-Key"]
+        "origins": "*",  # Allow all origins
+        "methods": ["POST", "OPTIONS"],  # Added OPTIONS for preflight requests
+        "allow_headers": ["Content-Type", "X-API-Key", "Authorization"],
+        "expose_headers": ["Content-Type"],
+        "supports_credentials": False  # Must be False when using "*" for origins
     }
 })
 
