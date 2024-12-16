@@ -55,7 +55,7 @@ def rate_limit_if_default_key(f):
     return decorated_function
 
 def calculate_perplexity(messages: List[Dict], output: str, api_key: str) -> float:
-    """Calculate perplexity for a given set of messages and output using token probabilities."""
+    """Calculate perplexity with pattern-based weighting and repetition penalty."""
     try:
         url = "https://api.together.xyz/v1/chat/completions"
         headers = {
@@ -86,38 +86,78 @@ def calculate_perplexity(messages: List[Dict], output: str, api_key: str) -> flo
         tokens = prompt_logprobs['tokens']
         token_logprobs = prompt_logprobs['token_logprobs']
         
-        # Reconstruct the full text and track token positions
-        full_text = ""
-        token_positions = []  # List of (start, end) positions for each token
-        
-        for token in tokens:
-            start = len(full_text)
-            full_text += token
-            end = len(full_text)
-            token_positions.append((start, end))
-        
-        # Find the output string position
+        # Find output position
+        full_text = "".join(tokens)
         output_pos = full_text.find(output)
         if output_pos == -1:
             return float('inf')
         
-        # Find which tokens overlap with our output string
-        output_end = output_pos + len(output)
+        # Get output tokens and their logprobs
+        output_text = ""
         output_token_indices = []
         
-        for i, (start, end) in enumerate(token_positions):
-            # Check if this token overlaps with our output string
-            if end > output_pos and start < output_end:
+        for i, token in enumerate(tokens):
+            output_text += token
+            if len(output_text) > output_pos and len(output_text) <= output_pos + len(output):
                 output_token_indices.append(i)
         
-        # Get logprobs for those tokens
-        output_logprobs = [token_logprobs[i] for i in output_token_indices]
-        valid_logprobs = [lp for lp in output_logprobs if lp is not None]
-        
-        if not valid_logprobs:
+        if not output_token_indices:
             return float('inf')
+        
+        # Get context before output to check for patterns
+        context_text = full_text[:output_pos]
+        
+        # Track token repetitions and calculate penalties
+        token_counts = {}
+        output_logprobs = []
+        weights = []
+        base_weight = 1.0
+        repetition_penalty = 0.777  # Increased from 0.15 to 1.5 for stronger penalty
+        
+        for i, idx in enumerate(output_token_indices):
+            token = tokens[idx]
+            logprob = token_logprobs[idx]
             
-        avg_log_prob = np.mean(valid_logprobs)
+            if logprob is not None:
+                # Apply repetition penalty
+                count = token_counts.get(token, 0)
+                adjusted_logprob = logprob - (count * repetition_penalty)  # Much stronger penalty per repetition
+                output_logprobs.append(adjusted_logprob)
+                
+                # Calculate weight
+                weight = base_weight
+                
+                # Check first few tokens for suspicious patterns
+                if i < 3:
+                    if i == 0:  # First token
+                        # Count occurrences in context
+                        token_count = context_text.count(token)
+                        if token_count > 3:
+                            weight *= 1.5
+                        
+                        # Check for non-textual patterns
+                        if any(c in token for c in '0123456789[]{}()/\\'):
+                            weight *= 2.0
+                        
+                        # Check for repetitive patterns
+                        if len(token.strip()) == 1 or token * 2 in output:
+                            weight *= 1.5
+                    
+                    elif i == 1 and token == tokens[output_token_indices[0]]:
+                        weight *= 1.5  # Penalty for immediate repetition
+                
+                weights.append(weight)
+                token_counts[token] = count + 1
+        
+        if not output_logprobs:
+            return float('inf')
+        
+        # Normalize weights
+        weights = np.array(weights)
+        weights = weights / np.sum(weights)
+        
+        # Calculate weighted average with adjusted logprobs
+        avg_log_prob = np.average(output_logprobs, weights=weights)
         perplexity = np.exp(-avg_log_prob)
         
         return perplexity
@@ -125,136 +165,14 @@ def calculate_perplexity(messages: List[Dict], output: str, api_key: str) -> flo
     except Exception as e:
         return float('inf')
 
-def get_expected_output(messages: List[Dict], api_key: str) -> str:
-    """Get expected output by querying the model with the conversation history."""
-    try:
-        url = "https://api.together.xyz/v1/chat/completions"
-        headers = {
-            "accept": "application/json",
-            "content-type": "application/json",
-            "authorization": f"Bearer {api_key}"
-        }
-        
-        # Use all messages except the last assistant message
-        context_messages = [msg for msg in messages if msg["role"] != "assistant"]
-        
-        payload = {
-            "model": "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
-            "messages": context_messages,
-            "temperature": 0,
-            "max_tokens": 1000
-        }
-        
-        response = requests.post(url, json=payload, headers=headers)
-        response_json = response.json()
-        
-        if 'choices' not in response_json or not response_json['choices']:
-            return ""
-            
-        expected_output = response_json['choices'][0]['message']['content']
-        return expected_output
-        
-    except Exception as e:
-        print(f"Error getting expected output: {e}")
-        return ""
-
-def calculate_embedding_similarity(messages: List[Dict], output: str, api_key: str) -> float:
-    """Calculate similarity between expected and actual output using LLM judgment."""
-    try:
-        url = "https://api.together.xyz/v1/chat/completions"
-        headers = {
-            "accept": "application/json",
-            "content-type": "application/json",
-            "authorization": f"Bearer {api_key}"
-        }
-        
-        # Get model's expected output for this context
-        expected_output = get_expected_output(messages, api_key)
-        
-        print("\n=== Similarity Judgment ===")
-        print(f"Expected Output: {repr(expected_output)}")
-        print(f"Actual Output: {repr(output)}")
-        
-        # Create prompt for the LLM to judge similarity
-        judge_prompt = [
-            {
-                "role": "system",
-                "content": """You are a judge evaluating the semantic similarity between two texts.
-                Compare them for meaning, factual consistency, and intent.
-                Respond in JSON format with the following fields:
-                - similarity_score: float between 0 and 1
-                - reasoning: brief explanation of your score
-                - key_differences: list of main differences (if any)
-                - factual_consistency: boolean indicating if the facts align
-                """
-            },
-            {
-                "role": "user",
-                "content": f"""Compare these two texts for similarity:
-
-Text 1 (Expected):
-{expected_output}
-
-Text 2 (Actual):
-{output}
-
-Provide your judgment in JSON format."""
-            }
-        ]
-        
-        # Get LLM judgment
-        payload = {
-            "model": "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
-            "messages": judge_prompt,
-            "temperature": 0,
-            "response_format": {"type": "json_object"},
-            "max_tokens": 1000
-        }
-        
-        response = requests.post(url, json=payload, headers=headers)
-        response_json = response.json()
-        print(f"Judge Response: {response_json}")
-        
-        if 'choices' not in response_json or not response_json['choices']:
-            return 0.0
-            
-        # Parse judgment
-        judgment = json.loads(response_json['choices'][0]['message']['content'])
-        similarity_score = float(judgment.get('similarity_score', 0.0))
-        
-        print(f"Similarity Score: {similarity_score}")
-        print(f"Reasoning: {judgment.get('reasoning', 'No reasoning provided')}")
-        print("=====================================\n")
-        
-        return similarity_score
-    
-    except Exception as e:
-        print(f"Error calculating similarity: {e}")
-        return 0.0
-
-def calculate_hybrid_score(messages: List[Dict], output: str, api_key: str) -> dict:
-    """Calculate a hybrid trust score using perplexity and penalizing for low embedding similarity."""
+def calculate_trust_score(messages: List[Dict], output: str, api_key: str) -> dict:
+    """Calculate trust score using weighted perplexity."""
     # Get perplexity-based score
     perplexity = calculate_perplexity(messages, output, api_key)
     perplexity_score = np.exp(-perplexity / 100)  # Base score from perplexity
     
-    # Get embedding similarity score
-    similarity_score = calculate_embedding_similarity(messages, output, api_key)
-    
-    # Calculate penalty using a modified sigmoid curve
-    # Shifted and scaled to:
-    # - Almost no penalty (>0.98) for similarity above 0.6
-    # - Very steep drop-off below 0.5
-    # - Near-zero (<0.02) for very low similarity
-    steepness = 15  # Controls how sharp the transition is
-    midpoint = 0.2  # Shifts where the steep drop-off occurs
-    penalty = 1 / (1 + np.exp(-steepness * (similarity_score - midpoint)))
-    
-    # Apply penalty to perplexity score
-    final_score = perplexity_score * penalty
-    
     # Clamp between 0 and 1
-    final_score = min(max(final_score, 0), 1)
+    final_score = min(max(perplexity_score, 0), 1)
     
     # Classify based on final score
     if final_score >= 0.8:
@@ -269,7 +187,6 @@ def calculate_hybrid_score(messages: List[Dict], output: str, api_key: str) -> d
         "classification": classification,
         "description": get_trust_description(classification),
         "perplexity_score": perplexity_score,
-        "similarity_score": similarity_score,
         "perplexity": perplexity
     }
 
@@ -297,15 +214,14 @@ def calculate_trust():
     messages: List[Dict] = data['messages']
     output: str = data['output']
     
-    # Calculate hybrid trust score
-    trust_result = calculate_hybrid_score(messages, output, api_key)
+    # Calculate trust score
+    trust_result = calculate_trust_score(messages, output, api_key)
     
     return jsonify({
         'trust_score': trust_result["score"],
         'trust_classification': trust_result["classification"],
         'trust_description': trust_result["description"],
         'perplexity_score': trust_result["perplexity_score"],
-        'similarity_score': trust_result["similarity_score"],
         'perplexity': trust_result["perplexity"],
         'using_default_key': api_key == DEFAULT_API_KEY
     })
