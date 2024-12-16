@@ -125,25 +125,152 @@ def calculate_perplexity(messages: List[Dict], output: str, api_key: str) -> flo
     except Exception as e:
         return float('inf')
 
-def calculate_trust_score(perplexity: float) -> dict:
-    """Convert perplexity to a trust score between 0 and 1 with classification."""
-    # Lower perplexity means higher trust
-    # Using a simple inverse exponential transformation
-    numeric_score = np.exp(-perplexity / 100)  # Adjust the scaling factor as needed
-    score = min(max(numeric_score, 0), 1)  # Clamp between 0 and 1
+def get_expected_output(messages: List[Dict], api_key: str) -> str:
+    """Get expected output by querying the model with the conversation history."""
+    try:
+        url = "https://api.together.xyz/v1/chat/completions"
+        headers = {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "authorization": f"Bearer {api_key}"
+        }
+        
+        # Use all messages except the last assistant message
+        context_messages = [msg for msg in messages if msg["role"] != "assistant"]
+        
+        payload = {
+            "model": "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+            "messages": context_messages,
+            "temperature": 0,
+            "max_tokens": 1000
+        }
+        
+        response = requests.post(url, json=payload, headers=headers)
+        response_json = response.json()
+        
+        if 'choices' not in response_json or not response_json['choices']:
+            return ""
+            
+        expected_output = response_json['choices'][0]['message']['content']
+        return expected_output
+        
+    except Exception as e:
+        print(f"Error getting expected output: {e}")
+        return ""
+
+def calculate_embedding_similarity(messages: List[Dict], output: str, api_key: str) -> float:
+    """Calculate similarity between expected and actual output using LLM judgment."""
+    try:
+        url = "https://api.together.xyz/v1/chat/completions"
+        headers = {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "authorization": f"Bearer {api_key}"
+        }
+        
+        # Get model's expected output for this context
+        expected_output = get_expected_output(messages, api_key)
+        
+        print("\n=== Similarity Judgment ===")
+        print(f"Expected Output: {repr(expected_output)}")
+        print(f"Actual Output: {repr(output)}")
+        
+        # Create prompt for the LLM to judge similarity
+        judge_prompt = [
+            {
+                "role": "system",
+                "content": """You are a judge evaluating the semantic similarity between two texts.
+                Compare them for meaning, factual consistency, and intent.
+                Respond in JSON format with the following fields:
+                - similarity_score: float between 0 and 1
+                - reasoning: brief explanation of your score
+                - key_differences: list of main differences (if any)
+                - factual_consistency: boolean indicating if the facts align
+                """
+            },
+            {
+                "role": "user",
+                "content": f"""Compare these two texts for similarity:
+
+Text 1 (Expected):
+{expected_output}
+
+Text 2 (Actual):
+{output}
+
+Provide your judgment in JSON format."""
+            }
+        ]
+        
+        # Get LLM judgment
+        payload = {
+            "model": "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+            "messages": judge_prompt,
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
+            "max_tokens": 1000
+        }
+        
+        response = requests.post(url, json=payload, headers=headers)
+        response_json = response.json()
+        print(f"Judge Response: {response_json}")
+        
+        if 'choices' not in response_json or not response_json['choices']:
+            return 0.0
+            
+        # Parse judgment
+        judgment = json.loads(response_json['choices'][0]['message']['content'])
+        similarity_score = float(judgment.get('similarity_score', 0.0))
+        
+        print(f"Similarity Score: {similarity_score}")
+        print(f"Reasoning: {judgment.get('reasoning', 'No reasoning provided')}")
+        print("=====================================\n")
+        
+        return similarity_score
     
-    # Classify the trust level
-    if score >= 0.8:
+    except Exception as e:
+        print(f"Error calculating similarity: {e}")
+        return 0.0
+
+def calculate_hybrid_score(messages: List[Dict], output: str, api_key: str) -> dict:
+    """Calculate a hybrid trust score using perplexity and penalizing for low embedding similarity."""
+    # Get perplexity-based score
+    perplexity = calculate_perplexity(messages, output, api_key)
+    perplexity_score = np.exp(-perplexity / 100)  # Base score from perplexity
+    
+    # Get embedding similarity score
+    similarity_score = calculate_embedding_similarity(messages, output, api_key)
+    
+    # Calculate penalty using a modified sigmoid curve
+    # Shifted and scaled to:
+    # - Almost no penalty (>0.98) for similarity above 0.6
+    # - Very steep drop-off below 0.5
+    # - Near-zero (<0.02) for very low similarity
+    steepness = 15  # Controls how sharp the transition is
+    midpoint = 0.2  # Shifts where the steep drop-off occurs
+    penalty = 1 / (1 + np.exp(-steepness * (similarity_score - midpoint)))
+    
+    # Apply penalty to perplexity score
+    final_score = perplexity_score * penalty
+    
+    # Clamp between 0 and 1
+    final_score = min(max(final_score, 0), 1)
+    
+    # Classify based on final score
+    if final_score >= 0.8:
         classification = "HIGH"
-    elif score >= 0.5:
+    elif final_score >= 0.5:
         classification = "MEDIUM"
     else:
         classification = "LOW"
     
     return {
-        "score": score,
+        "score": final_score,
         "classification": classification,
-        "description": get_trust_description(classification)
+        "description": get_trust_description(classification),
+        "perplexity_score": perplexity_score,
+        "similarity_score": similarity_score,
+        "perplexity": perplexity
     }
 
 def get_trust_description(classification: str) -> str:
@@ -162,7 +289,6 @@ def calculate_trust():
     if not data or 'messages' not in data or 'output' not in data:
         return jsonify({'error': 'Invalid input'}), 400
     
-    # Get API key from header or use default
     api_key = request.headers.get('X-API-Key', DEFAULT_API_KEY)
     
     if not api_key:
@@ -171,15 +297,16 @@ def calculate_trust():
     messages: List[Dict] = data['messages']
     output: str = data['output']
     
-    # Calculate perplexity using the messages array and output
-    perplexity = calculate_perplexity(messages, output, api_key)
-    trust_result = calculate_trust_score(perplexity)
+    # Calculate hybrid trust score
+    trust_result = calculate_hybrid_score(messages, output, api_key)
     
     return jsonify({
         'trust_score': trust_result["score"],
         'trust_classification': trust_result["classification"],
         'trust_description': trust_result["description"],
-        'perplexity': perplexity,
+        'perplexity_score': trust_result["perplexity_score"],
+        'similarity_score': trust_result["similarity_score"],
+        'perplexity': trust_result["perplexity"],
         'using_default_key': api_key == DEFAULT_API_KEY
     })
 
