@@ -1,29 +1,86 @@
-# TrustScore: Simple and Transparent AI Bot Verification
+# Plex: Simple and Transparent AI Bot Verification
 
-Welcome to **TrustScore**, a tool designed to help verify whether AI-generated messages in the cryptocurrency ecosystem are authentic and trustworthy. This project focuses on analyzing how likely a sequence of messages (input context) and an output message together originate from a legitimate AI model by looking at statistical patterns in the model's outputs.
+Welcome to **Plex**, a lightweight and powerful tool for verifying the authenticity of AI-generated messages in the cryptocurrency ecosystem. By analyzing statistical patterns in AI outputs, Plex helps distinguish genuine bot-generated messages from potentially manipulated or malicious ones.
 
-## Why Use TrustScore?
-1. **Ensure Trust:** Differentiate between real AI-generated messages and potential fakes.
-2. **Improve Transparency:** Encourage all participants in the ecosystem to share input/output pairs for better analysis.
-3. **Promote Collaboration:** Build a safer and more reliable cryptocurrency ecosystem by validating bot communications.
+---
 
-## What Does TrustScore Do?
-TrustScore evaluates AI message arrays by:
-- Extracting **log probabilities** from model outputs (basically how confident the AI was about each word in the context and output).
-- Comparing these patterns against trusted datasets.
-- Scoring messages based on how closely they match authentic ones.
+## Why Use Plex?
+
+1. **Build Trust:** Ensure AI-generated messages are authentic and reliable.
+2. **Enhance Transparency:** Promote trust in AI communications across the crypto landscape.
+3. **Strengthen Security:** Protect against manipulation by validating AI outputs with robust statistical methods.
+
+---
+
+## What Does Plex Do?
+
+Plex evaluates AI-generated messages by:
+- Analyzing **log probabilities** to assess the model's confidence in its predictions.
+- Calculating **perplexity**, a metric for determining how predictable the output is.
+- Generating a **trust score** to quantify authenticity.
+- Comparing outputs against trusted datasets to flag anomalies.
+
+---
 
 ## Quick Links
-- **[Whitepaper](WHITEPAPER.md):** Dive deep into the math and methodology behind TrustScore.
-- **[Demo Code](demo/):** Check out examples to see how TrustScore works in action.
+
+- **[Litepaper](WHITEPAPER.md):** Learn the core methodology and technical principles behind Plex.
+- **[API Documentation](docs/):** Get started with our public API for integrating Plex into your tools.
+- **Public API URL:** [https://plex.higherrrrrrr.fun](https://plex.higherrrrrrr.fun)
+
+---
 
 ## How It Works (Simplified)
-1. **Input a Message Array:** You provide a sequence of messages (context) and the final output message from an AI bot.
-2. **Run Analysis:** TrustScore looks at the likelihood of each word in the array and compares it with patterns in trusted bot outputs.
-3. **Get a Score:** The system tells you how much it trusts the message array, helping you flag any suspicious activity.
+
+1. **Submit Context and Output:** Provide a sequence of input messages and the AI-generated output.
+2. **Statistical Analysis:** Plex evaluates the log probabilities of each token and calculates the perplexity of the message.
+3. **Generate Trust Score:** A trust score is computed, indicating the likelihood that the message originated from a legitimate AI model.
+
+---
 
 ## Features
-- **Compatible with Any Model:** Works with GPT, other transformers, or any model that outputs token probabilities.
-- **Lightweight API:** Simple to integrate into your existing crypto tools.
-- **Statistical Robustness:** Uses advanced tests like the Kolmogorov-Smirnov (KS) test to ensure reliability.
 
+- **Model Agnostic:** Compatible with GPT-based models and any system that provides token-level log probabilities.
+- **Simple API Integration:** Easily integrate Plex with your crypto or AI applications.
+- **Robust Analysis:** Incorporates advanced statistical tests for reliable verification.
+- **Lightweight and Fast:** Minimal overhead for real-time validation needs.
+
+---
+
+## Example Workflow
+
+1. **Send a Request:** Provide the AI context (message array) and the generated output.
+2. **Get Results:** Receive perplexity and trust scores as JSON responses.
+3. **Evaluate Authenticity:** Use the trust score to decide if the message is trustworthy.
+
+---
+
+## API Overview
+
+### Endpoint: `POST /calculate-trust`
+
+#### Request Body:
+```json
+{
+  "messages": [
+    {"role": "user", "content": "What is Bitcoin?"},
+    {"role": "assistant", "content": "Bitcoin is a decentralized digital currency."}
+  ],
+  "output": "It operates without a central authority."
+}
+```
+
+#### Response:
+```json
+{
+  "trust_score": 0.87,
+  "perplexity": 15.32,
+  "using_default_key": false
+}
+```
+
+---
+
+## Get Started Today
+
+Use Plex to bring trust, transparency, and security to your AI communications. Explore the **[API Documentation](docs/)** or dive into the **[Litepaper](WHITEPAPER.md)** to learn more.
