@@ -25,7 +25,6 @@ Plex evaluates AI-generated messages by:
 ## Quick Links
 
 - **[Litepaper](WHITEPAPER.md):** Learn the core methodology and technical principles behind Plex.
-- **[API Documentation](docs/):** Get started with our public API for integrating Plex into your tools.
 - **Public API URL:** [https://plex.higherrrrrrr.fun](https://plex.higherrrrrrr.fun)
 
 ---

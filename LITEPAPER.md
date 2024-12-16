@@ -6,6 +6,8 @@
 
 Plex enables stakeholders to differentiate between authentic AI outputs and potentially manipulated content. By incorporating model-agnostic approaches and statistical comparisons, Plex fosters trust in the rapidly evolving AI-driven crypto landscape.
 
+---
+
 ## Features
 
 - **Perplexity Analysis**: Measures the predictability of a sequence to assess authenticity.
@@ -19,16 +21,15 @@ Plex enables stakeholders to differentiate between authentic AI outputs and pote
 
 Perplexity is a measure of how well a language model predicts a sequence of tokens. It quantifies the uncertainty of a model in generating a sequence, with lower perplexity indicating higher confidence in the text's predictability.
 
-For a sequence of tokens \( \{x_1, x_2, \ldots, x_n\} \), the perplexity is defined as:
+For a sequence of tokens `{x1, x2, ..., xn}`, the perplexity is defined as:
 
-\[
-\text{Perplexity} = \exp\left(-\frac{1}{n} \sum_{i=1}^n \log P(x_i | x_1, x_2, \ldots, x_{i-1})\right)
-\]
+```
+Perplexity = exp(- (1/n) * sum(log(P(xi | x1, x2, ..., x{i-1}))))
+```
 
 Where:
-
-- \( x_i \): A token in the sequence.
-- \( P(x_i | x_1, \ldots, x_{i-1}) \): The conditional probability of token \( x_i \) given its context.
+- `xi` is a token in the sequence.
+- `P(xi | x1, ..., x{i-1})` is the conditional probability of token `xi` given its context.
 
 ---
 
@@ -38,9 +39,9 @@ Where:
 
 Language models generate a probability distribution over possible tokens at each position in a sequence. The **log probability** for each token quantifies the model's confidence:
 
-\[
-\log P(x_i | x_1, \ldots, x_{i-1})
-\]
+```
+log(P(xi | x1, ..., x{i-1}))
+```
 
 Aggregating these log probabilities across a sequence provides insights into the overall predictability and fluency of the generated text.
 
@@ -64,7 +65,6 @@ Aggregating these log probabilities across a sequence provides insights into the
 Plex's approach is model-agnostic, relying on fundamental statistical characteristics of AI-generated text. Regardless of the underlying architecture (e.g., GPT-3, GPT-4), the log probability and perplexity metrics remain consistent.
 
 Key strengths:
-
 - **Cross-Model Validation**: The perplexity method works across various AI models with minimal calibration.
 - **Shared Linguistic Patterns**: High-quality models trained on similar datasets exhibit comparable statistical properties.
 - **Scalability**: Plex can integrate new models seamlessly, adapting to slight variations in behavior.
@@ -75,55 +75,19 @@ Key strengths:
 
 #### Conversion to Trust Score
 
-To make perplexity results interpretable, Plex converts perplexity values into both a numeric trust score and a categorical classification:
+To make perplexity results interpretable, Plex converts perplexity values into a trust score:
 
-\[
-\text{Numeric Score} = \exp\left(-\frac{\text{Perplexity}}{k}\right)
-\]
+```
+Trust Score = exp(-Perplexity / k)
+```
 
-Where \( k \) is a scaling factor that adjusts the sensitivity of the trust score. The numeric score is then mapped to categorical classifications:
-
-- **HIGH** (Score ≥ 0.8): Indicates highly reliable and consistent responses
-- **MEDIUM** (0.5 ≤ Score < 0.8): Suggests moderate reliability requiring verification
-- **LOW** (Score < 0.5): Signals unusual patterns warranting caution
-
-This dual approach provides both precise numerical measurements and easily interpretable classifications for quick decision-making.
-
-#### Trust Classifications
-
-Each classification level carries specific implications:
-
-1. **HIGH Trust**
-   - Perplexity patterns closely match expected AI behavior
-   - Response shows high coherence with conversation context
-   - Suitable for automated processing
-
-2. **MEDIUM Trust**
-   - Shows acceptable but not optimal perplexity patterns
-   - May require human verification for critical applications
-   - Suitable for supervised processing
-
-3. **LOW Trust**
-   - Exhibits unusual perplexity patterns
-   - May indicate manipulation or system issues
-   - Requires thorough review before use
-
----
-
-#### Statistical Analysis and Thresholding
-
-- **Perplexity Ranges**:
-  - **Low Perplexity**: Indicates high confidence and alignment with authentic AI outputs.
-  - **High Perplexity**: Suggests low predictability, warranting scrutiny.
-
-- **Thresholds**:
-  By establishing thresholds for acceptable perplexity ranges, Plex identifies potentially anomalous messages.
+Where `k` is a scaling factor that adjusts the sensitivity of the trust score. This produces a value between 0 and 1:
+- **High Trust Score**: Indicates reliable and authentic AI output.
+- **Low Trust Score**: Suggests unusual patterns warranting further investigation.
 
 ---
 
 ### Implementation Pipeline
-
-#### Workflow
 
 1. **Input Processing**:
    - Tokenize the input messages and the AI-generated output.
@@ -138,7 +102,9 @@ Each classification level carries specific implications:
 4. **Comparison Against Reference Data**:
    - Evaluate the results against reference perplexity distributions collected from trusted AI outputs.
 
-#### Code Example
+---
+
+### Code Example
 
 ```python
 import numpy as np
