@@ -9,6 +9,8 @@ from functools import wraps
 from dotenv import load_dotenv
 import requests
 import json
+import tiktoken
+import re
 
 load_dotenv()
 
@@ -54,9 +56,56 @@ def rate_limit_if_default_key(f):
         return f(*args, **kwargs)
     return decorated_function
 
-def calculate_perplexity(messages: List[Dict], output: str, api_key: str) -> float:
-    """Calculate perplexity with pattern-based weighting and repetition penalty."""
+def check_sequence_repetition(text: str) -> bool:
+    """Check for suspicious token repetition using tiktoken."""
     try:
+        # Use cl100k_base encoding (same as GPT-4)
+        encoding = tiktoken.get_encoding("cl100k_base")
+        tokens = encoding.encode(text)
+        
+        # Get unique tokens and their counts
+        token_set = set(tokens)
+        unique_count = len(token_set)
+        total_count = len(tokens)
+        
+        # Calculate token concentration (unique/total ratio)
+        if total_count == 0:
+            return False
+            
+        concentration = unique_count / total_count
+        
+        # Flag if there's high token repetition (low concentration)
+        # Adjust threshold as needed (0.2 means 80% of tokens are repeats)
+        return concentration < 0.2
+        
+    except Exception as e:
+        return False  # Default to not flagging on error
+
+def calculate_perplexity(messages: List[Dict], output: str, api_key: str) -> float:
+    """Calculate perplexity for output text."""
+    try:
+        # First check for repetitive sequences
+        if check_sequence_repetition(output):
+            return float('inf')
+
+        def normalize_text(text: str) -> str:
+            """Normalize text by removing emojis and standardizing special characters"""
+            # Remove emojis and other special unicode characters
+            text = re.sub(r'[^\x00-\x7F]+', '', text)
+            # Normalize whitespace
+            text = ' '.join(text.split())
+            # Normalize backslashes in shrug emoji
+            text = text.replace('\\\\', '\\')
+            return text.strip()
+
+        # Clean and normalize the texts
+        normalized_output = normalize_text(output)
+        normalized_messages = []
+        for msg in messages:
+            normalized_msg = msg.copy()
+            normalized_msg['content'] = normalize_text(msg['content'])
+            normalized_messages.append(normalized_msg)
+        
         url = "https://api.together.xyz/v1/chat/completions"
         headers = {
             "accept": "application/json",
@@ -64,7 +113,7 @@ def calculate_perplexity(messages: List[Dict], output: str, api_key: str) -> flo
             "authorization": f"Bearer {api_key}"
         }
         
-        full_messages = messages + [{"role": "assistant", "content": output}]
+        full_messages = normalized_messages + [{"role": "assistant", "content": normalized_output}]
         
         payload = {
             "model": "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
@@ -86,78 +135,41 @@ def calculate_perplexity(messages: List[Dict], output: str, api_key: str) -> flo
         tokens = prompt_logprobs['tokens']
         token_logprobs = prompt_logprobs['token_logprobs']
         
-        # Find output position
+        # Normalize and find output position
         full_text = "".join(tokens)
-        output_pos = full_text.find(output)
+        normalized_full_text = normalize_text(full_text)
+        
+        output_pos = normalized_full_text.find(normalized_output)
         if output_pos == -1:
             return float('inf')
         
         # Get output tokens and their logprobs
         output_text = ""
         output_token_indices = []
+        normalized_output_text = ""
         
         for i, token in enumerate(tokens):
             output_text += token
-            if len(output_text) > output_pos and len(output_text) <= output_pos + len(output):
+            normalized_output_text = normalize_text(output_text)
+            if (len(normalized_output_text) > output_pos and 
+                len(normalized_output_text) <= output_pos + len(normalized_output)):
                 output_token_indices.append(i)
         
         if not output_token_indices:
             return float('inf')
         
-        # Get context before output to check for patterns
-        context_text = full_text[:output_pos]
-        
-        # Track token repetitions and calculate penalties
-        token_counts = {}
+        # Get logprobs for output tokens
         output_logprobs = []
-        weights = []
-        base_weight = 1.0
-        repetition_penalty = 0.777  # Increased from 0.15 to 1.5 for stronger penalty
-        
-        for i, idx in enumerate(output_token_indices):
-            token = tokens[idx]
+        for idx in output_token_indices:
             logprob = token_logprobs[idx]
-            
             if logprob is not None:
-                # Apply repetition penalty
-                count = token_counts.get(token, 0)
-                adjusted_logprob = logprob - (count * repetition_penalty)  # Much stronger penalty per repetition
-                output_logprobs.append(adjusted_logprob)
-                
-                # Calculate weight
-                weight = base_weight
-                
-                # Check first few tokens for suspicious patterns
-                if i < 3:
-                    if i == 0:  # First token
-                        # Count occurrences in context
-                        token_count = context_text.count(token)
-                        if token_count > 3:
-                            weight *= 1.5
-                        
-                        # Check for non-textual patterns
-                        if any(c in token for c in '0123456789[]{}()/\\'):
-                            weight *= 2.0
-                        
-                        # Check for repetitive patterns
-                        if len(token.strip()) == 1 or token * 2 in output:
-                            weight *= 1.5
-                    
-                    elif i == 1 and token == tokens[output_token_indices[0]]:
-                        weight *= 1.5  # Penalty for immediate repetition
-                
-                weights.append(weight)
-                token_counts[token] = count + 1
+                output_logprobs.append(logprob)
         
         if not output_logprobs:
             return float('inf')
         
-        # Normalize weights
-        weights = np.array(weights)
-        weights = weights / np.sum(weights)
-        
-        # Calculate weighted average with adjusted logprobs
-        avg_log_prob = np.average(output_logprobs, weights=weights)
+        # Calculate simple average of logprobs
+        avg_log_prob = np.mean(output_logprobs)
         perplexity = np.exp(-avg_log_prob)
         
         return perplexity
@@ -170,6 +182,7 @@ def calculate_trust_score(messages: List[Dict], output: str, api_key: str) -> di
     # Get perplexity-based score
     perplexity = calculate_perplexity(messages, output, api_key)
     perplexity_score = np.exp(-perplexity / 100)  # Base score from perplexity
+
     
     # Clamp between 0 and 1
     final_score = min(max(perplexity_score, 0), 1)
@@ -216,6 +229,7 @@ def calculate_trust():
     
     # Calculate trust score
     trust_result = calculate_trust_score(messages, output, api_key)
+    print(f"Trust result: {trust_result}")
     
     return jsonify({
         'trust_score': trust_result["score"],
